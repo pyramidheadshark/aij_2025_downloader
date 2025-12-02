@@ -58,7 +58,7 @@ def compress_video(input_path, output_path):
 
     try:
         start_t = time.time()
-        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding='utf-8')
+        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
         
         if result.returncode != 0:
             print(f"   [FAIL] Ошибка FFmpeg. Лог:")
@@ -128,11 +128,15 @@ async def resolve_m3u8_links(unique_urls):
 
 
 def download_and_process(source_url, final_target_path, temp_dir):
-    """Скачивает RAW (игнорируя ошибки стрима), сжимает, сохраняет Final."""
+    """Скачивает RAW (агрессивно), сжимает, сохраняет Final."""
     
     if os.path.exists(final_target_path):
-        print(f"   -> Файл уже готов: {os.path.basename(final_target_path)}")
-        return True
+        if os.path.getsize(final_target_path) < 1024:
+             print(f"   [WARN] Найден пустой файл {os.path.basename(final_target_path)}. Перекачиваем.")
+             os.remove(final_target_path)
+        else:
+             print(f"   -> Файл уже готов: {os.path.basename(final_target_path)}")
+             return True
 
     filename = os.path.basename(final_target_path)
     raw_filename = "RAW_" + filename
@@ -147,48 +151,41 @@ def download_and_process(source_url, final_target_path, temp_dir):
         ydl_opts = {
             'outtmpl': raw_path,
             'format': 'best',
-            'quiet': True,
-            'no_warnings': True,
+            'quiet': True, 'no_warnings': True,
             'concurrent_fragment_downloads': 8,
             'trim_file_name': 200,
-            'retries': 10,
-            'fragment_retries': 10,
+            'retries': 20,
+            'fragment_retries': 20,
             'skip_unavailable_fragments': True,
             'ignoreerrors': True,
             'abort_on_unavailable_fragment': False,
+            'hls_use_mpegts': True, 
         }
         
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([source_url])
         except Exception as e:
-            print(f"   [WARN] yt-dlp сообщил об ошибке (но мог докачать): {e}")
+            print(f"   [WARN] yt-dlp error: {e}")
 
-        if os.path.exists(raw_path):
-            pass
+        if os.path.exists(raw_path): pass
         elif os.path.exists(part_path):
-            print(f"   [WARN] Файл не был финализирован (битый стрим). Восстанавливаем из .part...")
-            try:
-                shutil.move(part_path, raw_path)
-            except Exception as e:
-                print(f"   [FAIL] Не удалось восстановить .part: {e}")
-                return False
+            print(f"   [WARN] Восстановление из .part...")
+            try: shutil.move(part_path, raw_path)
+            except: pass
         elif os.path.exists(ytdl_path):
-             print(f"   [WARN] Найден .ytdl, пробуем переименовать...")
-             try:
-                shutil.move(ytdl_path, raw_path)
+             try: shutil.move(ytdl_path, raw_path)
              except: pass
         
         if not os.path.exists(raw_path):
-             print(f"   [FAIL] Файл не создан даже после попыток восстановления.")
+             print(f"   [FAIL] Не удалось скачать файл.")
              return False
-
     else:
         print(f"   --> Найден загруженный RAW: {filename}")
 
     if config.COMPRESS_VIDEO:
         if os.path.getsize(raw_path) < 1024:
-             print("   [FAIL] Скачанный файл пустой. Удаляем.")
+             print("   [FAIL] RAW файл пустой. Удаляем.")
              os.remove(raw_path)
              return False
 
@@ -212,28 +209,27 @@ def main():
     subparsers = parser.add_subparsers(dest='command', help='Commands', required=True)
     
     dl_parser = subparsers.add_parser('download', help='Скачать лекции')
-    dl_parser.add_argument('--halls', nargs='+', default=[], help='Фильтр залов (частичное имя). Пример: --halls "Main Stage" "Junior"')
+    dl_parser.add_argument('--halls', nargs='+', default=[], help='Фильтр залов')
     dl_parser.add_argument('--all', action='store_true', help='Скачать ВСЕ залы')
     
-    clean_parser = subparsers.add_parser('clean', help='Очистить кэш и временные файлы')
+    retry_parser = subparsers.add_parser('retry', help='Повторить скачивание для недостающих файлов')
+    
+    clean_parser = subparsers.add_parser('clean', help='Очистить кэш')
     args = parser.parse_args()
 
     if args.command == 'clean':
         print("--- ОЧИСТКА ---")
         if os.path.exists(config.TEMP_DIR):
-            try:
-                shutil.rmtree(config.TEMP_DIR)
-                print(f"[OK] Удалено: {config.TEMP_DIR}")
-            except Exception as e:
-                print(f"[ERR] Ошибка удаления {config.TEMP_DIR}: {e}")
-        else:
-            print(f"[SKIP] Не найдено: {config.TEMP_DIR}")
+            try: shutil.rmtree(config.TEMP_DIR)
+            except: pass
+            print(f"[OK] Удалено: {config.TEMP_DIR}")
         return
 
-    if args.command == 'download':
+    if args.command in ['download', 'retry']:
+        is_retry = (args.command == 'retry')
+        
         if config.COMPRESS_VIDEO and not check_ffmpeg():
-            print("\n[!!!] КРИТИЧЕСКАЯ ОШИБКА: FFmpeg не найден!")
-            print("Скачайте ffmpeg.exe и положите рядом со скриптом, или отключите сжатие в config.py")
+            print("\n[!!!] FFMPEG НЕ НАЙДЕН. Скачайте ffmpeg.exe.")
             return
 
         for d in [config.OUTPUT_DIR, config.TEMP_DIR]:
@@ -246,19 +242,17 @@ def main():
         unique_player_urls = set()
         
         target_halls = []
-        if args.all:
+        if is_retry or args.all:
             target_halls = []
-            print("Режим: ВСЕ залы")
+            print("Режим: Заполнение пропусков (Все залы)" if is_retry else "Режим: Скачивание (Все залы)")
         elif args.halls:
             target_halls = [h.lower() for h in args.halls]
             print(f"Режим: Выбранные залы {args.halls}")
         else:
-            print("\nНе выбраны залы. Используйте --all или --halls \"Name\"")
-            print("Доступные залы (по конфигу):")
-            for h in config.KNOWN_HALLS: print(f" - {h}")
+            print("Используйте: download --all ИЛИ retry")
             return
 
-        print("\n--- 1. Анализ расписания ---")
+        print("\n--- 1. Поиск недостающих файлов ---")
         for day in data:
             for hall in day.get('halls', []):
                 hall_name = hall.get('name', 'Unknown')
@@ -270,49 +264,69 @@ def main():
                     player_url = topic['videos'][0].get('videoUrl')
                     if not player_url: continue
 
-                    unique_player_urls.add(player_url)
-                    speakers = ", ".join(filter(None, [s.get('fullName', '') for s in topic.get('speakers', [])])) or "Speaker"
-                    tasks.append({'date': day.get('concreteDate'), 'hall': hall_name, 'start_time': topic.get('startDate'), 'title': topic.get('title'), 'speakers': speakers, 'player_url': player_url})
+                    date_folder = clean_name(day.get('concreteDate'))
+                    hall_folder = clean_name(hall_name)
+                    safe_title = truncate_string(clean_name(topic.get('title')), config.MAX_TITLE_LEN)
+                    safe_speaker = truncate_string(clean_name(", ".join(filter(None, [s.get('fullName') for s in topic.get('speakers', [])]))) or "Speaker", config.MAX_SPEAKER_LEN)
+                    time_str = extract_time(topic.get('startDate'))
+                    
+                    filename = config.FILENAME_FORMAT.format(time=time_str, speaker=safe_speaker, title=safe_title)
+                    if len(filename) > config.MAX_FILENAME_LENGTH:
+                        name_part, ext = os.path.splitext(filename)
+                        filename = name_part[:config.MAX_FILENAME_LENGTH] + ext
+                    
+                    target_path = os.path.join(config.OUTPUT_DIR, date_folder, hall_folder, filename)
+                    
+                    if not os.path.exists(target_path):
+                        unique_player_urls.add(player_url)
+                        tasks.append({
+                            'player_url': player_url,
+                            'target_path': target_path,
+                            'title': filename
+                        })
 
-        print(f"Отобрано лекций: {len(tasks)}")
-        if len(tasks) == 0: return
+        print(f"Необходимо скачать: {len(tasks)} файлов.")
+        if len(tasks) == 0:
+            print("Все файлы уже скачаны!")
+            return
 
         m3u8_map = asyncio.run(resolve_m3u8_links(list(unique_player_urls)))
-        print("\n--- 3. Обработка (Скачивание + Сжатие) ---")
         
+        print("\n--- 3. Обработка ---")
+        
+        stats = {'ok': 0, 'fail': 0}
         processed_files_cache = {}
 
         for i, task in enumerate(tasks, 1):
             p_url = task['player_url']
             if p_url not in m3u8_map:
                 print(f"[{i}] SKIP: Нет видео")
+                stats['fail'] += 1
                 continue
             
             source_url = m3u8_map[p_url]
-            date_folder = clean_name(task['date'])
-            hall_folder = clean_name(task['hall'])
-            target_dir = os.path.join(config.OUTPUT_DIR, date_folder, hall_folder)
-            if not os.path.exists(target_dir): os.makedirs(target_dir)
-
-            safe_title = truncate_string(clean_name(task['title']), config.MAX_TITLE_LEN)
-            safe_speaker = truncate_string(clean_name(task['speakers']), config.MAX_SPEAKER_LEN)
-            time_str = extract_time(task['start_time'])
-            
-            filename = config.FILENAME_FORMAT.format(time=time_str, speaker=safe_speaker, title=safe_title)
-            if len(filename) > config.MAX_FILENAME_LENGTH:
-                name_part, ext = os.path.splitext(filename)
-                filename = name_part[:config.MAX_FILENAME_LENGTH] + ext
-            target_path = os.path.join(target_dir, filename)
+            target_path = task['target_path']
 
             if source_url in processed_files_cache and os.path.exists(processed_files_cache[source_url]):
-                print(f"[{i}/{len(tasks)}] Копирование готового: {filename}")
-                try: shutil.copyfile(processed_files_cache[source_url], target_path)
-                except Exception as e: print(f"   [!] Ошибка копирования: {e}")
+                print(f"[{i}/{len(tasks)}] Копирование: {os.path.basename(target_path)}")
+                try: 
+                    shutil.copyfile(processed_files_cache[source_url], target_path)
+                    stats['ok'] += 1
+                except: stats['fail'] += 1
             else:
-                print(f"[{i}/{len(tasks)}] Обработка: {filename}")
+                print(f"[{i}/{len(tasks)}] Загрузка: {os.path.basename(target_path)}")
                 success = download_and_process(source_url, target_path, config.TEMP_DIR)
                 if success and os.path.exists(target_path):
                     processed_files_cache[source_url] = target_path
+                    stats['ok'] += 1
+                else:
+                    stats['fail'] += 1
+
+        print("\n" + "="*30)
+        print(f"ИТОГ: Успешно: {stats['ok']} | Провалено: {stats['fail']}")
+        print("="*30)
+        if stats['fail'] > 0:
+            print("Попробуйте запустить команду 'retry' еще раз.")
 
 if __name__ == "__main__":
     main()
