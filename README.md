@@ -12,7 +12,7 @@
 1. **Клонировать репозиторий:**
 
     ```bash
-    git clone ...
+    git clone https://github.com/pyramidheadshark/aij_2025_downloader.git
     cd aij_2025_downloader
     ```
 
