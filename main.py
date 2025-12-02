@@ -127,8 +127,10 @@ async def resolve_m3u8_links(unique_urls):
     return results
 
 
-def download_and_process(source_url, final_target_path, temp_dir):
-    """Скачивает RAW (агрессивно), сжимает, сохраняет Final."""
+def download_and_process(source_url, final_target_path, temp_dir, referer_url=None):
+    """
+    Скачивает RAW с притворяясь браузером (Referer), сжимает, сохраняет Final.
+    """
     
     if os.path.exists(final_target_path):
         if os.path.getsize(final_target_path) < 1024:
@@ -141,21 +143,28 @@ def download_and_process(source_url, final_target_path, temp_dir):
     filename = os.path.basename(final_target_path)
     raw_filename = "RAW_" + filename
     raw_path = os.path.join(temp_dir, raw_filename)
-    
     part_path = raw_path + ".part"
-    ytdl_path = raw_path + ".ytdl"
 
     if not os.path.exists(raw_path):
         print(f"   --> Скачивание RAW: {filename}")
         
+        http_headers = {
+            'User-Agent': config.USER_AGENT,
+        }
+        if referer_url:
+            http_headers['Referer'] = referer_url
+            http_headers['Origin'] = "https://front.finevid.link"
+
         ydl_opts = {
             'outtmpl': raw_path,
             'format': 'best',
-            'quiet': True, 'no_warnings': True,
+            'quiet': False, 
+            'no_warnings': False,
             'concurrent_fragment_downloads': 8,
             'trim_file_name': 200,
-            'retries': 20,
-            'fragment_retries': 20,
+            'http_headers': http_headers,
+            'retries': 10,
+            'fragment_retries': 10,
             'skip_unavailable_fragments': True,
             'ignoreerrors': True,
             'abort_on_unavailable_fragment': False,
@@ -166,16 +175,13 @@ def download_and_process(source_url, final_target_path, temp_dir):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([source_url])
         except Exception as e:
-            print(f"   [WARN] yt-dlp error: {e}")
+            print(f"   [WARN] yt-dlp завершился с ошибкой (проверяем файл...): {e}")
 
         if os.path.exists(raw_path): pass
         elif os.path.exists(part_path):
             print(f"   [WARN] Восстановление из .part...")
             try: shutil.move(part_path, raw_path)
             except: pass
-        elif os.path.exists(ytdl_path):
-             try: shutil.move(ytdl_path, raw_path)
-             except: pass
         
         if not os.path.exists(raw_path):
              print(f"   [FAIL] Не удалось скачать файл.")
@@ -185,7 +191,7 @@ def download_and_process(source_url, final_target_path, temp_dir):
 
     if config.COMPRESS_VIDEO:
         if os.path.getsize(raw_path) < 1024:
-             print("   [FAIL] RAW файл пустой. Удаляем.")
+             print("   [FAIL] RAW файл пустой (возможно, бан по IP или ошибка доступа). Удаляем.")
              os.remove(raw_path)
              return False
 
@@ -212,7 +218,7 @@ def main():
     dl_parser.add_argument('--halls', nargs='+', default=[], help='Фильтр залов')
     dl_parser.add_argument('--all', action='store_true', help='Скачать ВСЕ залы')
     
-    retry_parser = subparsers.add_parser('retry', help='Повторить скачивание для недостающих файлов')
+    retry_parser = subparsers.add_parser('retry', help='Повторить скачивание')
     
     clean_parser = subparsers.add_parser('clean', help='Очистить кэш')
     args = parser.parse_args()
@@ -315,7 +321,7 @@ def main():
                 except: stats['fail'] += 1
             else:
                 print(f"[{i}/{len(tasks)}] Загрузка: {os.path.basename(target_path)}")
-                success = download_and_process(source_url, target_path, config.TEMP_DIR)
+                success = download_and_process(source_url, target_path, config.TEMP_DIR, referer_url=p_url)
                 if success and os.path.exists(target_path):
                     processed_files_cache[source_url] = target_path
                     stats['ok'] += 1
@@ -325,8 +331,6 @@ def main():
         print("\n" + "="*30)
         print(f"ИТОГ: Успешно: {stats['ok']} | Провалено: {stats['fail']}")
         print("="*30)
-        if stats['fail'] > 0:
-            print("Попробуйте запустить команду 'retry' еще раз.")
 
 if __name__ == "__main__":
     main()
