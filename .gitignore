@@ -258,7 +258,10 @@ $RECYCLE.BIN/
 # FFmpeg
 /ffmpeg.exe
 
-# Output folders
+# Outpu & temp folders
 /output/
+/output_stt/
+/output_audio/
 /temp_raw/
+/temp_audio/
 !/output/.gitkeep
