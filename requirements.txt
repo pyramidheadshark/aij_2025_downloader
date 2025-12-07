@@ -1,3 +1,20 @@
+# Local deps
 requests
 yt-dlp
 playwright
+hf_xet
+
+# Local deps (transcribe)
+torch
+torchaudio
+sentencepiece
+huggingface_hub
+transformers
+accelerate
+soundfile
+tqdm
+
+# GigaAM build deps
+hydra-core
+omegaconf
+pyannote.audio
