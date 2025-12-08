@@ -128,10 +128,6 @@ async def resolve_m3u8_links(unique_urls):
 
 
 def download_and_process(source_url, final_target_path, temp_dir, referer_url=None):
-    """
-    Скачивает RAW с притворяясь браузером (Referer), сжимает, сохраняет Final.
-    """
-    
     if os.path.exists(final_target_path):
         if os.path.getsize(final_target_path) < 1024:
              print(f"   [WARN] Найден пустой файл {os.path.basename(final_target_path)}. Перекачиваем.")
