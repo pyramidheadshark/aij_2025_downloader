@@ -258,10 +258,19 @@ $RECYCLE.BIN/
 # FFmpeg
 /ffmpeg.exe
 
-# Outpu & temp folders
-/output/
+# Output & temp folders
+/output_video/
 /output_stt/
+/output_clean/
 /output_audio/
 /temp_raw/
 /temp_audio/
+/temp_chunks/
 !/output/.gitkeep
+
+# Local repo map script for LLM refactor
+/map_project.py
+/project_map.txt
+
+# Final evaluation report
+/evaluation_report.csv

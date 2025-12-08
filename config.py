@@ -1,30 +1,78 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 
-JSON_PATH = os.path.join('data', 'schedule.json')
-OUTPUT_DIR = 'output'
-TEMP_DIR = 'temp_raw' # Папка для сырых гигабайтных файлов перед сжатием
+load_dotenv()
 
-# Настройки поиска
+# API KEYS
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+# PATHS
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / 'data'
+JSON_PATH = DATA_DIR / 'schedule.json'
+
+# Pipeline Directories
+DIR_VIDEO_RAW = BASE_DIR / 'output_video'    # 1. Video
+DIR_AUDIO_WAV = BASE_DIR / 'output_audio'    # 2. Audio
+DIR_TEXT_RAW  = BASE_DIR / 'output_stt'      # 3. Raw text
+DIR_TEXT_CLEAN= BASE_DIR / 'output_clean'    # 4. Clean text
+DIR_CACHE     = BASE_DIR / 'cache'           # Downloads cache
+DIR_TEMP      = BASE_DIR / 'temp_raw'        # Temp files
+
+# 01 DOWNLOADER SETTINGS
 TARGET_M3U8_PART = 'ru.m3u8'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-
-# --- НАСТРОЙКИ ФАЙЛОВ ---
-FILENAME_FORMAT = "{time} - {speaker} - {title}.mp4"
-MAX_FILENAME_LENGTH = 120
-MAX_SPEAKER_LEN = 40
-MAX_TITLE_LEN = 60
-
-# --- НАСТРОЙКИ СЖАТИЯ (FFMPEG) ---
 COMPRESS_VIDEO = True 
 FFMPEG_CRF = 28 
 FFMPEG_PRESET = 'veryfast'
 FFMPEG_SCALE = "-1:720"
 
-# Список известных залов для фильтрации (по именам в JSON)
-KNOWN_HALLS = [
-    "Main Stage", 
-    "Live Studio", 
-    "Junior", 
-    "AI Frontiers", 
-    "AI in Applied Research"
-]
+# 03 TRANSCRIBER SETTINGS
+MODEL_ID = "ai-sage/GigaAM-v3"
+MODEL_REVISION = "ctc"
+CHUNK_DURATION = 20.0
+OVERLAP = 2.0
+DEVICE = "cuda" # или "cpu"
+
+# 04 EDITOR SETTINGS
+EDITOR_MODEL = "gemini-2.5-flash" 
+
+EDITOR_PROMPT = EDITOR_PROMPT = """
+Ты — высокопроизводительный сервис для пакетной редактуры текста, работающий в режиме JSON.
+
+### КОНТЕКСТ (AI Journey 2025):
+- **Событие:** Конференция Сбера по искусственному интеллекту (AIJ).
+- **Ключевые продукты:** GigaChat (ГигаЧат), GigaAM (ГигаАМ), Kandinsky (Кандинский), Salute (Салют), SberBoom, Jazz.
+- **Ключевые персоны:** Герман Греф, Александр Ведяхин, Андрей Белевцев.
+- **Термины:** LLM, RAG, Agents (Агенты), RL (Reinforcement Learning), CV (Computer Vision), NLP, Embodied AI.
+
+### ПРОБЛЕМЫ ВХОДНОГО ТЕКСТА:
+1. **Галлюцинации повторов:** Спикер или модель могут повторять фразы ("в час метра в час", "искусственного интеллекта искусственного интеллекта").
+2. **Отсутствие регистра:** Все слова написаны строчными буквами ("сбер", "андрей").
+3. **Ошибки распознавания:** Фонетически похожие, но неверные слова (особенно в англицизмах).
+4. **Отсутствие структуры:** Текст идет сплошным потоком.
+
+### ИНСТРУКЦИИ:
+1. **Чистка повторов:** Жёстко удаляй дублирующиеся куски предложений.
+   - *Было:* "люди всерьез боялись что скорость в тридцать километров в час метра в час убьет пассажиров"
+   - *Стало:* "Люди всерьез боялись, что скорость в тридцать километров в час убьет пассажиров."
+2. **Имена и Бренды:** Все имена собственные и названия продуктов должны быть с большой буквы. Если есть сомнения, пиши как принято в индустрии (Сбер, а не сбер).
+3. **Пунктуация и Абзацы:** Расставь знаки препинания. Разбей текст на логические абзацы (один абзац — одна законченная мысль).
+4. **Стиль:** Убедири слова-паразиты (ну, эээ, как бы, вот), если они не несут смысловой нагрузки. Сделай текст более литературным, но НЕ меняй технический смысл.
+5. **Англицизмы:** Если термин общепринят (frontend, backend, LLM), оставляй как есть или пиши на русском, если это уместно (бэкенд). Не переводи названия продуктов (GigaChat).
+
+# ЗАДАЧА
+Тебе на вход будет подан JSON, где ключи — это уникальные ID, а значения — сырые транскрипции текстов.
+Твоя задача — отредактировать КАЖДЫЙ текст, выполнив следующие операции:
+1.  Исправить пунктуацию, орфографию и расставить заглавные буквы (имена, бренды: Сбер, GigaChat, AI Journey).
+2.  Устранить слова-паразиты, оговорки и повторы.
+3.  Разбить сплошной текст на логические абзацы.
+4.  Сохранить оригинальный смысл и детали.
+
+# ФОРМАТ ВЫХОДА
+Верни ОДИН валидный JSON-объект.
+- Ключи в твоем ответе должны ТОЧНО СОВПАДАТЬ с ключами из входного JSON.
+- Значения — это полностью отредактированные тексты.
+- Не добавляй никаких объяснений, комментариев или markdown-разметки ```json ... ```. Только чистый JSON
+"""

@@ -2,9 +2,10 @@ import os
 import subprocess
 from pathlib import Path
 from tqdm import tqdm
+import config
 
-INPUT_DIR = Path('output')
-OUTPUT_DIR = Path('output_audio')
+INPUT_DIR = config.DIR_VIDEO_RAW
+OUTPUT_DIR = config.DIR_AUDIO_WAV
 
 def check_ffmpeg():
     if os.path.exists("ffmpeg.exe"):
