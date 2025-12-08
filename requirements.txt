@@ -1,10 +1,15 @@
-# Local deps
+# Core
 requests
+python-dotenv
+tqdm
+colorama
+
+# 01 Downloader
 yt-dlp
 playwright
 hf_xet
 
-# Local deps (transcribe)
+# Transcriber
 torch
 torchaudio
 sentencepiece
@@ -12,9 +17,16 @@ huggingface_hub
 transformers
 accelerate
 soundfile
-tqdm
+deepmultilingualpunctuation
+numpy
 
-# GigaAM build deps
-hydra-core
-omegaconf
-pyannote.audio
+# Editor
+google-genai
+
+# I hate this thing but it's cool
+# uv pip install llama-cpp-python --force-reinstall --no-cache-dir --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 
+
+# Validator
+pandas
+sentence-transformers
+py-readability-metrics
