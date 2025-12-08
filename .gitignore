@@ -271,3 +271,6 @@ $RECYCLE.BIN/
 # Local repo map script for LLM refactor
 /map_project.py
 /project_map.txt
+
+# Final evaluation report
+/evaluation_report.csv
